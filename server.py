@@ -379,19 +379,15 @@ async def chat_completions(request: Request):
     else:
         log.warning("No reCAPTCHA token available, sending without token")
 
-    # 构建 headers
+    # 构建 headers（与浏览器行为一致：text/plain + cookie 认证，无 Authorization）
     headers = {
         "accept": "*/*",
-        "content-type": "application/json",
+        "content-type": "text/plain;charset=UTF-8",
         "origin": ARENA_BASE,
         "referer": f"{ARENA_BASE}/?mode=direct",
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "cookie": store.build_cookie_header(),
     }
-
-    # 添加认证 header（如果有 auth_token）
-    if store.auth_token:
-        headers["authorization"] = f"Bearer {store.auth_token}"
 
     url = ARENA_CREATE_EVAL
     log.info(f"Sending to arena.ai: model={model_name}, eval_id={eval_id}, has_v3={bool(v3_token)}, has_v2={bool(v2_token)}")
@@ -417,7 +413,7 @@ async def stream_response(url, payload, headers, model_name, eval_id, client_typ
 
     try:
         async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
-            async with client.stream("POST", url, json=payload, headers=headers) as resp:
+            async with client.stream("POST", url, content=json.dumps(payload), headers=headers) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
                     log.error(f"Arena API error: {resp.status_code} {body[:500]}")
@@ -563,7 +559,7 @@ async def non_stream_response(url, payload, headers, model_name, eval_id, client
 
     try:
         async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
-            async with client.stream("POST", url, json=payload, headers=headers) as resp:
+            async with client.stream("POST", url, content=json.dumps(payload), headers=headers) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
                     log.error(f"Arena API error: {resp.status_code} {body[:500]}")
