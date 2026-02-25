@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}控制面板 - Arena2API{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 py-6 space-y-6">
+    <!-- Status Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-dark-400 rounded-xl p-5 border border-gray-700/50">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm">服务器状态</p>
+                    <p class="text-2xl font-bold mt-1" id="card-server">--</p>
+                </div>
+                <div class="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </div>
+            </div>
+            <p class="text-gray-500 text-xs mt-2" id="card-server-sub">端口 {{ port }}</p>
+        </div>
+
+        <div class="bg-dark-400 rounded-xl p-5 border border-gray-700/50">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm">扩展连接</p>
+                    <p class="text-2xl font-bold mt-1" id="card-ext">--</p>
+                </div>
+                <div class="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center" id="card-ext-icon">
+                    <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                </div>
+            </div>
+            <p class="text-gray-500 text-xs mt-2" id="card-ext-sub">--</p>
+        </div>
+
+        <div class="bg-dark-400 rounded-xl p-5 border border-gray-700/50">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm">V3 Token 池</p>
+                    <p class="text-2xl font-bold mt-1" id="card-tokens">--</p>
+                </div>
+                <div class="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+                </div>
+            </div>
+            <p class="text-gray-500 text-xs mt-2" id="card-tokens-sub">--</p>
+        </div>
+
+        <div class="bg-dark-400 rounded-xl p-5 border border-gray-700/50">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm">可用模型</p>
+                    <p class="text-2xl font-bold mt-1" id="card-models">--</p>
+                </div>
+                <div class="w-12 h-12 bg-amber-500/10 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+                </div>
+            </div>
+            <p class="text-gray-500 text-xs mt-2" id="card-models-sub">--</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Model List -->
+        <div class="lg:col-span-2 bg-dark-400 rounded-xl border border-gray-700/50">
+            <div class="p-4 border-b border-gray-700/50 flex items-center justify-between">
+                <h2 class="font-semibold">模型列表</h2>
+                <input type="text" id="model-search" placeholder="搜索模型..." class="bg-dark-300 border border-gray-600 rounded-lg px-3 py-1.5 text-sm w-48 focus:outline-none focus:border-indigo-500 transition-colors">
+            </div>
+            <div class="p-4 max-h-96 overflow-y-auto" id="model-list">
+                <div class="text-gray-500 text-center py-8">加载中...</div>
+            </div>
+        </div>
+
+        <!-- Quick Actions & Info -->
+        <div class="space-y-6">
+            <!-- API Info -->
+            <div class="bg-dark-400 rounded-xl border border-gray-700/50 p-4">
+                <h2 class="font-semibold mb-3">API 信息</h2>
+                <div class="space-y-3 text-sm">
+                    <div>
+                        <label class="text-gray-400 block mb-1">Base URL</label>
+                        <div class="flex items-center bg-dark-300 rounded-lg p-2">
+                            <code class="flex-1 text-indigo-400">http://localhost:{{ port }}/v1</code>
+                            <button onclick="copyText('http://localhost:{{ port }}/v1')" class="text-gray-400 hover:text-white ml-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-gray-400 block mb-1">API Key</label>
+                        <div class="flex items-center bg-dark-300 rounded-lg p-2">
+                            <code class="flex-1 text-gray-300">not-needed</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Test -->
+            <div class="bg-dark-400 rounded-xl border border-gray-700/50 p-4">
+                <h2 class="font-semibold mb-3">快速测试</h2>
+                <div class="space-y-2">
+                    <button onclick="quickTest('/health')" class="w-full text-left bg-dark-300 hover:bg-dark-500 rounded-lg p-3 text-sm transition-colors group">
+                        <span class="text-green-400 font-mono">GET</span>
+                        <span class="text-gray-300 ml-2">/health</span>
+                    </button>
+                    <button onclick="quickTest('/v1/models')" class="w-full text-left bg-dark-300 hover:bg-dark-500 rounded-lg p-3 text-sm transition-colors group">
+                        <span class="text-green-400 font-mono">GET</span>
+                        <span class="text-gray-300 ml-2">/v1/models</span>
+                    </button>
+                    <button onclick="quickTest('/v1/extension/status')" class="w-full text-left bg-dark-300 hover:bg-dark-500 rounded-lg p-3 text-sm transition-colors group">
+                        <span class="text-green-400 font-mono">GET</span>
+                        <span class="text-gray-300 ml-2">/v1/extension/status</span>
+                    </button>
+                </div>
+                <div id="test-result" class="mt-3 hidden">
+                    <div class="bg-dark-300 rounded-lg p-3 max-h-48 overflow-auto">
+                        <pre class="text-xs text-gray-300 whitespace-pre-wrap" id="test-output"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Connection Detail -->
+            <div class="bg-dark-400 rounded-xl border border-gray-700/50 p-4">
+                <h2 class="font-semibold mb-3">连接详情</h2>
+                <div class="space-y-2 text-sm" id="conn-detail">
+                    <div class="flex justify-between"><span class="text-gray-400">Auth Token</span><span id="detail-auth">--</span></div>
+                    <div class="flex justify-between"><span class="text-gray-400">CF Clearance</span><span id="detail-cf">--</span></div>
+                    <div class="flex justify-between"><span class="text-gray-400">V2 Token</span><span id="detail-v2">--</span></div>
+                    <div class="flex justify-between"><span class="text-gray-400">Cookies</span><span id="detail-cookies">--</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function copyText(t) {
+        navigator.clipboard.writeText(t);
+    }
+
+    async function quickTest(endpoint) {
+        const box = document.getElementById('test-result');
+        const out = document.getElementById('test-output');
+        box.classList.remove('hidden');
+        out.textContent = '请求中...';
+        try {
+            const r = await fetch(endpoint);
+            const d = await r.json();
+            out.textContent = JSON.stringify(d, null, 2);
+        } catch(e) {
+            out.textContent = `错误: ${e.message}`;
+        }
+    }
+
+    async function refreshDashboard() {
+        try {
+            const [statusR, modelsR] = await Promise.all([
+                fetch('/v1/extension/status'),
+                fetch('/v1/models')
+            ]);
+            const status = await statusR.json();
+            const models = await modelsR.json();
+
+            // Server card
+            document.getElementById('card-server').textContent = '运行中';
+            document.getElementById('card-server').className = 'text-2xl font-bold mt-1 text-green-400';
+
+            // Extension card
+            const extEl = document.getElementById('card-ext');
+            const extSub = document.getElementById('card-ext-sub');
+            if (status.active) {
+                extEl.textContent = '已连接';
+                extEl.className = 'text-2xl font-bold mt-1 text-green-400';
+                extSub.textContent = `${status.last_push_ago}s 前推送`;
+            } else {
+                extEl.textContent = '未连接';
+                extEl.className = 'text-2xl font-bold mt-1 text-red-400';
+                extSub.textContent = status.last_push_ago ? `${status.last_push_ago}s 前断开` : '等待扩展连接';
+            }
+
+            // Token card
+            document.getElementById('card-tokens').textContent = status.v3_tokens;
+            document.getElementById('card-tokens').className = `text-2xl font-bold mt-1 ${status.v3_tokens > 0 ? 'text-green-400' : 'text-gray-400'}`;
+            document.getElementById('card-tokens-sub').textContent = status.has_v2 ? '含 V2 备用' : '仅 V3';
+
+            // Models card
+            const mCount = status.text_models + status.image_models;
+            document.getElementById('card-models').textContent = mCount;
+            document.getElementById('card-models-sub').textContent = `文本 ${status.text_models} | 图像 ${status.image_models}`;
+
+            // Details
+            document.getElementById('detail-auth').textContent = status.has_auth ? '✓' : '✗';
+            document.getElementById('detail-auth').className = status.has_auth ? 'text-green-400' : 'text-red-400';
+            document.getElementById('detail-cf').textContent = status.has_cf ? '✓' : '✗';
+            document.getElementById('detail-cf').className = status.has_cf ? 'text-green-400' : 'text-red-400';
+            document.getElementById('detail-v2').textContent = status.has_v2 ? '✓' : '✗';
+            document.getElementById('detail-v2').className = status.has_v2 ? 'text-green-400' : 'text-red-400';
+            document.getElementById('detail-cookies').textContent = status.cookies.length > 0 ? status.cookies.join(', ') : '无';
+
+            // Model list
+            renderModelList(models.data);
+        } catch(e) {
+            document.getElementById('card-server').textContent = '离线';
+            document.getElementById('card-server').className = 'text-2xl font-bold mt-1 text-red-400';
+        }
+    }
+
+    function renderModelList(models) {
+        const container = document.getElementById('model-list');
+        if (!models || models.length === 0 || (models.length === 1 && models[0].id === 'waiting-for-extension')) {
+            container.innerHTML = '<div class="text-gray-500 text-center py-8">等待扩展推送模型列表...</div>';
+            return;
+        }
+        container.innerHTML = models.map((m, i) => `
+            <div class="model-item flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-dark-300 transition-colors ${i > 0 ? 'border-t border-gray-700/30' : ''}" data-name="${m.id.toLowerCase()}">
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-lg flex items-center justify-center text-xs font-bold text-indigo-400">${m.id.charAt(0)}</div>
+                    <div>
+                        <p class="font-medium text-sm">${m.id}</p>
+                        <p class="text-gray-500 text-xs">${m.owned_by}</p>
+                    </div>
+                </div>
+                <a href="/chat?model=${encodeURIComponent(m.id)}" class="text-indigo-400 hover:text-indigo-300 text-xs">开始对话 →</a>
+            </div>
+        `).join('');
+    }
+
+    document.getElementById('model-search').addEventListener('input', function(e) {
+        const q = e.target.value.toLowerCase();
+        document.querySelectorAll('.model-item').forEach(el => {
+            el.style.display = el.dataset.name.includes(q) ? '' : 'none';
+        });
+    });
+
+    refreshDashboard();
+    setInterval(refreshDashboard, 5000);
+</script>
+{% endblock %}

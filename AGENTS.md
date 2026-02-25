@@ -18,7 +18,9 @@ Starts on port 9090 by default (override with `PORT` env var). Set `DEBUG=1` for
 
 | Endpoint | Description |
 |---|---|
-| `GET /health` or `GET /` | Health check + extension status |
+| `GET /` or `GET /dashboard` | Web control panel (HTML) |
+| `GET /chat` | Chat plaza / conversation UI (HTML) |
+| `GET /health` | Health check + extension status (JSON) |
 | `GET /v1/models` | List available models (OpenAI format) |
 | `POST /v1/chat/completions` | Chat completions (stream/non-stream) |
 | `POST /v1/extension/push` | Extension pushes tokens/cookies/models |
@@ -36,3 +38,4 @@ Starts on port 9090 by default (override with `PORT` env var). Set `DEBUG=1` for
   ```
 - **pip install location:** Dependencies install to `~/.local` (user site-packages). The `~/.local/bin` directory may need to be on `PATH` for `uvicorn`/`fastapi` CLI tools, though `python server.py` works without this.
 - **Browser extensions** are plain JavaScript — no build step required.
+- **Web UI** templates are in `templates/` using Jinja2. The dashboard (`/dashboard`) provides real-time server monitoring; the chat plaza (`/chat`) supports multi-model conversations with streaming, stored in browser localStorage.

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Arena2API{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: { 50: '#f8fafc', 100: '#1e293b', 200: '#0f172a', 300: '#0d1117', 400: '#161b22', 500: '#21262d' }
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        * { scrollbar-width: thin; scrollbar-color: #374151 transparent; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .pulse-dot { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .msg-content pre { margin: 0.5rem 0; border-radius: 0.5rem; overflow-x: auto; }
+        .msg-content code { font-size: 0.875rem; }
+        .msg-content p { margin: 0.25rem 0; line-height: 1.7; }
+        .msg-content ul, .msg-content ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+        .msg-content li { margin: 0.25rem 0; }
+        .msg-content table { border-collapse: collapse; margin: 0.5rem 0; width: 100%; }
+        .msg-content th, .msg-content td { border: 1px solid #374151; padding: 0.5rem; text-align: left; }
+        .msg-content th { background: #1e293b; }
+        .msg-content blockquote { border-left: 3px solid #6366f1; padding-left: 1rem; margin: 0.5rem 0; color: #94a3b8; }
+        .typing-cursor::after { content: '▍'; animation: blink 1s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-dark-300 text-gray-200 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-dark-400 border-b border-gray-700/50 sticky top-0 z-50 backdrop-blur-sm bg-opacity-90">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-14">
+                <div class="flex items-center space-x-8">
+                    <a href="/dashboard" class="flex items-center space-x-2">
+                        <div class="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center font-bold text-sm">A2</div>
+                        <span class="font-semibold text-white text-lg">Arena2API</span>
+                    </a>
+                    <div class="flex space-x-1">
+                        <a href="/dashboard" class="nav-link px-3 py-2 rounded-md text-sm font-medium {{ 'bg-gray-700/50 text-white' if active_page == 'dashboard' else 'text-gray-400 hover:text-white hover:bg-gray-700/30' }} transition-colors">
+                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
+                            控制面板
+                        </a>
+                        <a href="/chat" class="nav-link px-3 py-2 rounded-md text-sm font-medium {{ 'bg-gray-700/50 text-white' if active_page == 'chat' else 'text-gray-400 hover:text-white hover:bg-gray-700/30' }} transition-colors">
+                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                            对话广场
+                        </a>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <div id="nav-status" class="flex items-center space-x-2 text-sm">
+                        <span class="w-2 h-2 rounded-full bg-gray-500 pulse-dot" id="nav-dot"></span>
+                        <span class="text-gray-400" id="nav-status-text">检查中...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    {% block content %}{% endblock %}
+
+    <script>
+        async function updateNavStatus() {
+            try {
+                const r = await fetch('/v1/extension/status');
+                const d = await r.json();
+                const dot = document.getElementById('nav-dot');
+                const txt = document.getElementById('nav-status-text');
+                if (d.active) {
+                    dot.className = 'w-2 h-2 rounded-full bg-green-400 pulse-dot';
+                    txt.textContent = `在线 | ${d.text_models} 模型`;
+                    txt.className = 'text-green-400';
+                } else {
+                    dot.className = 'w-2 h-2 rounded-full bg-red-400 pulse-dot';
+                    txt.textContent = '扩展未连接';
+                    txt.className = 'text-red-400';
+                }
+            } catch(e) {
+                document.getElementById('nav-dot').className = 'w-2 h-2 rounded-full bg-red-400';
+                document.getElementById('nav-status-text').textContent = '服务器离线';
+            }
+        }
+        updateNavStatus();
+        setInterval(updateNavStatus, 5000);
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

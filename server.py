@@ -26,7 +26,8 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import StreamingResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from starlette.responses import StreamingResponse, JSONResponse, HTMLResponse
 
 # ============================================================
 # 日志
@@ -193,6 +194,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+templates_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+templates = Jinja2Templates(directory=templates_dir)
 
 
 # ============================================================
@@ -647,16 +651,45 @@ async def non_stream_response(url, payload, headers, model_name, eval_id, client
 
 
 # ============================================================
+# Web 管理页面
+# ============================================================
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(request: Request):
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "active_page": "dashboard",
+        "port": PORT,
+    })
+
+
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_page(request: Request):
+    return templates.TemplateResponse("chat.html", {
+        "request": request,
+        "active_page": "chat",
+        "port": PORT,
+    })
+
+
+# ============================================================
 # 健康检查
 # ============================================================
 @app.get("/health")
-@app.get("/")
 async def health():
     return {
         "status": "ok",
         "version": "1.0.0",
         "extension": store.status(),
     }
+
+
+@app.get("/")
+async def root(request: Request):
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "active_page": "dashboard",
+        "port": PORT,
+    })
 
 
 # ============================================================

@@ -1,0 +1,436 @@
+{% extends "base.html" %}
+{% block title %}对话广场 - Arena2API{% endblock %}
+
+{% block head %}
+<style>
+    .chat-container { height: calc(100vh - 3.5rem); }
+    .sidebar-item.active { background: rgba(99, 102, 241, 0.15); border-left: 3px solid #6366f1; }
+    .sidebar-item:not(.active) { border-left: 3px solid transparent; }
+    .msg-user { background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.05)); }
+    .msg-assistant { background: rgba(30, 41, 59, 0.5); }
+    .model-badge { font-size: 0.65rem; padding: 1px 6px; border-radius: 4px; }
+    #input-area { backdrop-filter: blur(12px); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="chat-container flex">
+    <!-- Sidebar -->
+    <div class="w-64 bg-dark-400 border-r border-gray-700/50 flex flex-col flex-shrink-0" id="sidebar">
+        <div class="p-3">
+            <button onclick="newChat()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg py-2.5 px-4 text-sm font-medium transition-colors flex items-center justify-center space-x-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                <span>新建对话</span>
+            </button>
+        </div>
+        <div class="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5" id="conv-list"></div>
+        <div class="p-3 border-t border-gray-700/50 text-xs text-gray-500 text-center">
+            对话存储在浏览器本地
+        </div>
+    </div>
+
+    <!-- Main Chat Area -->
+    <div class="flex-1 flex flex-col min-w-0">
+        <!-- Chat Header -->
+        <div class="bg-dark-400 border-b border-gray-700/50 px-4 py-2.5 flex items-center justify-between flex-shrink-0">
+            <div class="flex items-center space-x-3">
+                <button onclick="toggleSidebar()" class="lg:hidden text-gray-400 hover:text-white">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
+                <h2 class="font-medium text-sm" id="chat-title">新建对话</h2>
+            </div>
+            <div class="flex items-center space-x-3">
+                <select id="model-select" class="bg-dark-300 border border-gray-600 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500 max-w-xs">
+                    <option value="">选择模型...</option>
+                </select>
+                <button onclick="toggleSettings()" class="text-gray-400 hover:text-white transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Settings Panel (hidden by default) -->
+        <div id="settings-panel" class="hidden bg-dark-400 border-b border-gray-700/50 px-4 py-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+                <div>
+                    <label class="text-gray-400 text-xs block mb-1">System Prompt</label>
+                    <textarea id="system-prompt" rows="3" class="w-full bg-dark-300 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 resize-none" placeholder="设置系统提示词..."></textarea>
+                </div>
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-gray-400 text-xs block mb-1">流式输出</label>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="stream-toggle" checked class="sr-only peer">
+                            <div class="w-9 h-5 bg-gray-600 rounded-full peer peer-checked:bg-indigo-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+                            <span class="ml-2 text-sm text-gray-300">启用</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label class="text-gray-400 text-xs block mb-1">对话标题</label>
+                        <input type="text" id="edit-title" class="w-full bg-dark-300 border border-gray-600 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500" placeholder="自动生成">
+                        <button onclick="saveTitle()" class="mt-1 text-xs text-indigo-400 hover:text-indigo-300">保存</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div class="flex-1 overflow-y-auto" id="messages-container">
+            <div class="max-w-3xl mx-auto px-4 py-6 space-y-4" id="messages">
+                <div class="text-center text-gray-500 py-20">
+                    <div class="w-16 h-16 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <svg class="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                    </div>
+                    <p class="text-lg font-medium text-gray-400">选择模型，开始对话</p>
+                    <p class="text-sm mt-1">支持 300+ AI 模型，流式输出</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div id="input-area" class="border-t border-gray-700/50 bg-dark-400/80 px-4 py-3 flex-shrink-0">
+            <div class="max-w-3xl mx-auto">
+                <div class="flex items-end space-x-3">
+                    <div class="flex-1 bg-dark-300 rounded-xl border border-gray-600 focus-within:border-indigo-500 transition-colors">
+                        <textarea id="user-input" rows="1" class="w-full bg-transparent px-4 py-3 text-sm focus:outline-none resize-none" placeholder="输入消息... (Enter 发送, Shift+Enter 换行)" oninput="autoResize(this)"></textarea>
+                    </div>
+                    <button onclick="sendMessage()" id="send-btn" class="bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-xl p-3 transition-colors flex-shrink-0">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                    </button>
+                    <button onclick="stopGeneration()" id="stop-btn" class="hidden bg-red-600 hover:bg-red-500 text-white rounded-xl p-3 transition-colors flex-shrink-0">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STORE_KEY = 'arena2api_chats';
+let conversations = [];
+let currentConvId = null;
+let isGenerating = false;
+let abortController = null;
+
+marked.setOptions({
+    highlight: (code, lang) => {
+        if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang }).value;
+        return hljs.highlightAuto(code).value;
+    },
+    breaks: true
+});
+
+function loadConversations() {
+    try { conversations = JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { conversations = []; }
+}
+
+function saveConversations() {
+    localStorage.setItem(STORE_KEY, JSON.stringify(conversations));
+}
+
+function getConv(id) { return conversations.find(c => c.id === id); }
+
+function newChat(model) {
+    const conv = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        title: '新建对话',
+        model: model || '',
+        systemPrompt: '',
+        messages: [],
+        createdAt: Date.now()
+    };
+    conversations.unshift(conv);
+    saveConversations();
+    switchChat(conv.id);
+}
+
+function switchChat(id) {
+    currentConvId = id;
+    const conv = getConv(id);
+    if (!conv) return;
+    document.getElementById('chat-title').textContent = conv.title;
+    if (conv.model) document.getElementById('model-select').value = conv.model;
+    document.getElementById('system-prompt').value = conv.systemPrompt || '';
+    document.getElementById('edit-title').value = conv.title === '新建对话' ? '' : conv.title;
+    renderMessages(conv.messages);
+    renderConvList();
+}
+
+function deleteChat(id, e) {
+    e.stopPropagation();
+    conversations = conversations.filter(c => c.id !== id);
+    saveConversations();
+    if (currentConvId === id) {
+        if (conversations.length > 0) switchChat(conversations[0].id);
+        else { currentConvId = null; renderConvList(); renderMessages([]); document.getElementById('chat-title').textContent = '新建对话'; }
+    } else renderConvList();
+}
+
+function renderConvList() {
+    const el = document.getElementById('conv-list');
+    el.innerHTML = conversations.map(c => `
+        <div class="sidebar-item ${c.id === currentConvId ? 'active' : ''} flex items-center justify-between px-3 py-2.5 rounded-r-lg cursor-pointer hover:bg-gray-700/30 transition-colors group" onclick="switchChat('${c.id}')">
+            <div class="min-w-0 flex-1">
+                <p class="text-sm truncate ${c.id === currentConvId ? 'text-white' : 'text-gray-300'}">${escapeHtml(c.title)}</p>
+                <p class="text-xs text-gray-500 mt-0.5">${c.model || '未选模型'} · ${c.messages.length}条</p>
+            </div>
+            <button onclick="deleteChat('${c.id}', event)" class="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-all ml-2 flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
+        </div>
+    `).join('');
+}
+
+function renderMessages(msgs) {
+    const container = document.getElementById('messages');
+    if (!msgs || msgs.length === 0) {
+        container.innerHTML = `
+            <div class="text-center text-gray-500 py-20">
+                <div class="w-16 h-16 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+                </div>
+                <p class="text-lg font-medium text-gray-400">选择模型，开始对话</p>
+                <p class="text-sm mt-1">支持 300+ AI 模型，流式输出</p>
+            </div>`;
+        return;
+    }
+    container.innerHTML = msgs.map((m, i) => msgHtml(m, i)).join('');
+    container.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
+    scrollToBottom();
+}
+
+function msgHtml(m, idx) {
+    const isUser = m.role === 'user';
+    return `<div class="fade-in ${isUser ? 'msg-user' : 'msg-assistant'} rounded-xl px-5 py-4 relative group">
+        <div class="flex items-start space-x-3">
+            <div class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${isUser ? 'bg-indigo-600' : 'bg-gradient-to-br from-emerald-500 to-teal-600'} text-white text-xs font-bold">
+                ${isUser ? 'U' : 'AI'}
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center space-x-2 mb-1">
+                    <span class="text-xs font-medium ${isUser ? 'text-indigo-400' : 'text-emerald-400'}">${isUser ? '你' : (m.model || 'AI')}</span>
+                </div>
+                <div class="msg-content text-sm text-gray-200 leading-relaxed" id="msg-${idx}">${isUser ? escapeHtml(m.content) : renderMd(m.content)}</div>
+            </div>
+            <div class="opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1 flex-shrink-0">
+                <button onclick="copyMsg(${idx})" class="text-gray-500 hover:text-gray-300 p-1" title="复制">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>`;
+}
+
+function renderMd(text) {
+    if (!text) return '';
+    try { return marked.parse(text); } catch { return escapeHtml(text); }
+}
+
+function escapeHtml(t) {
+    const d = document.createElement('div'); d.textContent = t; return d.innerHTML;
+}
+
+function copyMsg(idx) {
+    const conv = getConv(currentConvId);
+    if (conv && conv.messages[idx]) navigator.clipboard.writeText(conv.messages[idx].content);
+}
+
+function scrollToBottom() {
+    const c = document.getElementById('messages-container');
+    c.scrollTop = c.scrollHeight;
+}
+
+function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+}
+
+function toggleSettings() {
+    document.getElementById('settings-panel').classList.toggle('hidden');
+}
+
+function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('hidden');
+}
+
+function saveTitle() {
+    const conv = getConv(currentConvId);
+    if (!conv) return;
+    const t = document.getElementById('edit-title').value.trim();
+    if (t) { conv.title = t; document.getElementById('chat-title').textContent = t; saveConversations(); renderConvList(); }
+}
+
+async function sendMessage() {
+    const input = document.getElementById('user-input');
+    const text = input.value.trim();
+    if (!text || isGenerating) return;
+
+    const model = document.getElementById('model-select').value;
+    if (!model) { alert('请先选择模型'); return; }
+
+    if (!currentConvId) newChat(model);
+    const conv = getConv(currentConvId);
+    if (!conv) return;
+    conv.model = model;
+
+    conv.messages.push({ role: 'user', content: text });
+    input.value = ''; input.style.height = 'auto';
+
+    if (conv.title === '新建对话' && conv.messages.length <= 2) {
+        conv.title = text.slice(0, 30) + (text.length > 30 ? '...' : '');
+        document.getElementById('chat-title').textContent = conv.title;
+    }
+
+    renderMessages(conv.messages);
+    saveConversations(); renderConvList();
+
+    const sysPrompt = document.getElementById('system-prompt').value.trim();
+    conv.systemPrompt = sysPrompt;
+    const useStream = document.getElementById('stream-toggle').checked;
+    await generate(conv, sysPrompt, useStream);
+}
+
+async function generate(conv, sysPrompt, stream) {
+    isGenerating = true;
+    document.getElementById('send-btn').classList.add('hidden');
+    document.getElementById('stop-btn').classList.remove('hidden');
+
+    const messages = [];
+    if (sysPrompt) messages.push({ role: 'system', content: sysPrompt });
+    conv.messages.forEach(m => messages.push({ role: m.role, content: m.content }));
+
+    const assistantMsg = { role: 'assistant', content: '', model: conv.model };
+    conv.messages.push(assistantMsg);
+
+    const msgContainer = document.getElementById('messages');
+    msgContainer.innerHTML += msgHtml(assistantMsg, conv.messages.length - 1);
+    const contentEl = document.getElementById(`msg-${conv.messages.length - 1}`);
+    contentEl.classList.add('typing-cursor');
+
+    abortController = new AbortController();
+
+    try {
+        if (stream) {
+            const resp = await fetch('/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: conv.model, messages, stream: true }),
+                signal: abortController.signal
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+                throw new Error(err.detail || `HTTP ${resp.status}`);
+            }
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, { stream: true });
+                const lines = buf.split('\n');
+                buf = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const data = line.slice(6).trim();
+                    if (data === '[DONE]') break;
+                    try {
+                        const chunk = JSON.parse(data);
+                        const delta = chunk.choices?.[0]?.delta;
+                        if (delta?.content) {
+                            assistantMsg.content += delta.content;
+                            contentEl.innerHTML = renderMd(assistantMsg.content);
+                            contentEl.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
+                            scrollToBottom();
+                        }
+                        if (delta?.reasoning_content) {
+                            assistantMsg.content += delta.reasoning_content;
+                            contentEl.innerHTML = renderMd(assistantMsg.content);
+                            scrollToBottom();
+                        }
+                    } catch {}
+                }
+            }
+        } else {
+            const resp = await fetch('/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: conv.model, messages, stream: false }),
+                signal: abortController.signal
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+                throw new Error(err.detail || `HTTP ${resp.status}`);
+            }
+            const result = await resp.json();
+            assistantMsg.content = result.choices?.[0]?.message?.content || '';
+            contentEl.innerHTML = renderMd(assistantMsg.content);
+            contentEl.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
+        }
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            assistantMsg.content += '\n\n[已停止]';
+        } else {
+            assistantMsg.content = `[错误] ${e.message}`;
+        }
+        contentEl.innerHTML = renderMd(assistantMsg.content);
+    }
+
+    contentEl.classList.remove('typing-cursor');
+    isGenerating = false;
+    abortController = null;
+    document.getElementById('send-btn').classList.remove('hidden');
+    document.getElementById('stop-btn').classList.add('hidden');
+    saveConversations();
+    scrollToBottom();
+}
+
+function stopGeneration() {
+    if (abortController) abortController.abort();
+}
+
+async function loadModels() {
+    try {
+        const r = await fetch('/v1/models');
+        const d = await r.json();
+        const sel = document.getElementById('model-select');
+        const prev = sel.value;
+        sel.innerHTML = '<option value="">选择模型...</option>';
+        d.data.forEach(m => {
+            if (m.id === 'waiting-for-extension') return;
+            const opt = document.createElement('option');
+            opt.value = m.id; opt.textContent = m.id;
+            sel.appendChild(opt);
+        });
+        if (prev) sel.value = prev;
+        const conv = getConv(currentConvId);
+        if (conv && conv.model) sel.value = conv.model;
+        const params = new URLSearchParams(window.location.search);
+        const qm = params.get('model');
+        if (qm && !prev) sel.value = qm;
+    } catch {}
+}
+
+document.getElementById('user-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+
+document.getElementById('model-select').addEventListener('change', function() {
+    const conv = getConv(currentConvId);
+    if (conv) { conv.model = this.value; saveConversations(); renderConvList(); }
+});
+
+loadConversations();
+renderConvList();
+loadModels();
+setInterval(loadModels, 15000);
+
+if (conversations.length > 0) switchChat(conversations[0].id);
+</script>
+{% endblock %}
