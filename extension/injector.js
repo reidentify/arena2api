@@ -187,74 +187,98 @@
       case 'PROXY_CHAT':
         (function(data, requestId) {
           var prid = data.proxy_id;
-          console.log(TAG, 'Proxy chat:', prid, data.model_name);
+          var prompt = data.prompt;
+          console.log(TAG, 'Proxy chat (UI mode):', prid);
 
-          getRecaptchaToken('chat_submit').then(function(token) {
-            var payload = {
-              id: data.eval_id,
-              mode: 'direct',
-              modelAId: data.model_id,
-              userMessageId: data.user_msg_id,
-              modelAMessageId: data.model_a_msg_id,
-              userMessage: { content: data.prompt, experimental_attachments: [], metadata: {} },
-              modality: data.modality || 'chat',
-              recaptchaV3Token: token,
-            };
-
-            fetch('https://arena.ai/nextjs-api/stream/create-evaluation', {
-              method: 'POST',
-              headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-              body: JSON.stringify(payload),
-              credentials: 'include',
-            }).then(function(resp) {
-              if (!resp.ok) {
-                return resp.text().then(function(t) {
-                  window.postMessage({
-                    from: 'arena2api-injector', type: 'PROXY_RESULT', rid: requestId,
-                    proxy_id: prid, error: true, status: resp.status, body: t,
-                  }, '*');
-                });
-              }
-              var reader = resp.body.getReader();
-              var decoder = new TextDecoder();
-              var content = '', reasoning = '', buf = '';
-
-              function pump() {
-                return reader.read().then(function(result) {
-                  if (result.done) {
-                    window.postMessage({
-                      from: 'arena2api-injector', type: 'PROXY_RESULT', rid: requestId,
-                      proxy_id: prid, error: false, content: content, reasoning: reasoning,
-                    }, '*');
-                    return;
-                  }
-                  buf += decoder.decode(result.value, { stream: true });
-                  var lines = buf.split('\n');
-                  buf = lines.pop();
-                  for (var li = 0; li < lines.length; li++) {
-                    var line = lines[li];
-                    if (line.indexOf('a0:') === 0) {
-                      try { var t = JSON.parse(line.substring(3)); if (typeof t === 'string' && t !== 'hasArenaError') content += t; } catch(e) {}
-                    } else if (line.indexOf('ag:') === 0) {
-                      try { var t2 = JSON.parse(line.substring(3)); if (typeof t2 === 'string') reasoning += t2; } catch(e) {}
-                    }
-                  }
-                  return pump();
-                });
-              }
-              return pump();
-            }).catch(function(err) {
-              window.postMessage({
-                from: 'arena2api-injector', type: 'PROXY_RESULT', rid: requestId,
-                proxy_id: prid, error: true, status: 0, body: err.message || String(err),
-              }, '*');
-            });
-          }).catch(function(err) {
+          function sendResult(error, content, status, body) {
             window.postMessage({
               from: 'arena2api-injector', type: 'PROXY_RESULT', rid: requestId,
-              proxy_id: prid, error: true, status: 0, body: 'Token error: ' + (err.message || String(err)),
+              proxy_id: prid, error: error, content: content || '', status: status || 0, body: body || '',
             }, '*');
-          });
+          }
+
+          try {
+            // 切到 Direct 模式（如果不在的话）
+            var modeBtn = document.querySelector('[data-testid="mode-selector"], button[class*="mode"]');
+
+            // 找输入框
+            var textarea = document.querySelector('textarea[placeholder*="Ask"], textarea[placeholder*="ask"], textarea, div[contenteditable="true"]');
+            if (!textarea) { sendResult(true, '', 0, 'Cannot find chat input'); return; }
+
+            // 记录当前消息数量
+            var getMessages = function() {
+              // arena.ai 的消息通常在 article 或特定容器中
+              var msgs = document.querySelectorAll('[data-message-id], .prose, article, [class*="message-content"], [class*="markdown"]');
+              return msgs;
+            };
+            var prevCount = getMessages().length;
+
+            // 清空输入框并填入 prompt
+            textarea.focus();
+            // 使用 input 事件模拟真实输入
+            var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            nativeInputValueSetter.call(textarea, prompt);
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            textarea.dispatchEvent(new Event('change', { bubbles: true }));
+
+            // 等一下让 React 处理
+            setTimeout(function() {
+              // 按 Enter 发送
+              textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+
+              console.log(TAG, 'Message sent via UI, waiting for response...');
+
+              // 轮询等待新消息出现
+              var pollCount = 0;
+              var maxPoll = 120; // 最多等 120 秒
+              var lastContent = '';
+              var stableCount = 0;
+
+              var poller = setInterval(function() {
+                pollCount++;
+                if (pollCount > maxPoll) {
+                  clearInterval(poller);
+                  if (lastContent) {
+                    sendResult(false, lastContent);
+                  } else {
+                    sendResult(true, '', 0, 'Timeout waiting for response');
+                  }
+                  return;
+                }
+
+                // 检查新消息
+                var msgs = getMessages();
+                if (msgs.length > prevCount) {
+                  // 获取最新的 AI 回复
+                  var lastMsg = msgs[msgs.length - 1];
+                  var text = lastMsg.textContent || lastMsg.innerText || '';
+                  text = text.trim();
+
+                  if (text && text !== lastContent) {
+                    lastContent = text;
+                    stableCount = 0;
+                  } else if (text && text === lastContent) {
+                    stableCount++;
+                    // 内容稳定 3 秒认为完成
+                    if (stableCount >= 3) {
+                      clearInterval(poller);
+                      console.log(TAG, 'Response received:', text.length, 'chars');
+                      sendResult(false, text);
+                    }
+                  }
+                }
+
+                // 检查错误提示
+                var errEl = document.querySelector('[class*="error"], [class*="Error"], .text-red-500');
+                if (errEl && errEl.textContent.indexOf('Something went wrong') >= 0) {
+                  clearInterval(poller);
+                  sendResult(true, '', 500, errEl.textContent);
+                }
+              }, 1000);
+            }, 500);
+          } catch(err) {
+            sendResult(true, '', 0, 'UI proxy error: ' + (err.message || String(err)));
+          }
         })(msg, rid);
         break;
     }
