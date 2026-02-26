@@ -184,6 +184,57 @@ class Store:
 store = Store()
 
 # ============================================================
+# 扩展代理队列（让扩展在页面内执行 fetch，绕过 reCAPTCHA）
+# ============================================================
+class ProxyQueue:
+    def __init__(self):
+        self.pending: dict = {}   # id -> {payload, event, result}
+        self.timeout = 120
+
+    def create(self, payload: dict) -> str:
+        rid = uuid7()
+        self.pending[rid] = {
+            "payload": payload,
+            "event": asyncio.Event(),
+            "result": None,
+            "created": time.time(),
+        }
+        return rid
+
+    async def wait_for(self, rid: str) -> Optional[dict]:
+        entry = self.pending.get(rid)
+        if not entry:
+            return None
+        try:
+            await asyncio.wait_for(entry["event"].wait(), timeout=self.timeout)
+        except asyncio.TimeoutError:
+            self.pending.pop(rid, None)
+            return None
+        result = entry["result"]
+        self.pending.pop(rid, None)
+        return result
+
+    def resolve(self, rid: str, result: dict):
+        entry = self.pending.get(rid)
+        if entry:
+            entry["result"] = result
+            entry["event"].set()
+
+    def get_pending(self) -> list:
+        now = time.time()
+        items = []
+        for rid, entry in list(self.pending.items()):
+            if now - entry["created"] > self.timeout:
+                self.pending.pop(rid, None)
+                continue
+            if not entry["event"].is_set():
+                items.append({"id": rid, "payload": entry["payload"]})
+        return items
+
+
+proxy_queue = ProxyQueue()
+
+# ============================================================
 # FastAPI
 # ============================================================
 app = FastAPI(title="arena2api", version="1.0.0")
@@ -221,6 +272,27 @@ async def extension_push(request: Request):
 @app.get("/v1/extension/status")
 async def extension_status():
     return store.status()
+
+
+# ============================================================
+# 扩展代理端点（内部）
+# ============================================================
+@app.get("/v1/internal/pending")
+async def get_pending():
+    """扩展轮询待处理的请求"""
+    items = proxy_queue.get_pending()
+    return {"requests": items}
+
+
+@app.post("/v1/internal/response/{rid}")
+async def post_response(rid: str, request: Request):
+    """扩展提交请求结果"""
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON")
+    proxy_queue.resolve(rid, data)
+    return {"status": "ok"}
 
 
 # ============================================================
@@ -332,76 +404,101 @@ async def chat_completions(request: Request):
             history_parts.append(f"<|{role}|>\n{content}")
         prompt = "\n".join(history_parts)
 
-    # 获取 reCAPTCHA token
-    v3_token = store.pop_v3_token()
-    v2_token = store.pop_v2_token() if not v3_token else None
-
     is_image = model_name in store.image_models
     modality = "image" if is_image else "chat"
 
-    # 构建 arena.ai 请求
     eval_id = uuid7()
-    user_msg_id = uuid7()
-    model_a_msg_id = uuid7()
 
-    # 从 cookies 中提取 userId
+    # ===== 扩展代理模式（推荐，绕过 reCAPTCHA） =====
+    proxy_payload = {
+        "model_id": model_id,
+        "model_name": model_name,
+        "prompt": prompt,
+        "modality": modality,
+        "eval_id": eval_id,
+        "user_msg_id": uuid7(),
+        "model_a_msg_id": uuid7(),
+    }
+
+    rid = proxy_queue.create(proxy_payload)
+    log.info(f"[Proxy] 等待扩展执行: model={model_name}, rid={rid}")
+
+    result = await proxy_queue.wait_for(rid)
+
+    if result:
+        log.info(f"[Proxy] 收到扩展响应: status={result.get('status')}, len={len(result.get('content', ''))}")
+        if result.get("error"):
+            raise HTTPException(result.get("status", 500), result.get("body", "Extension proxy error"))
+
+        content = result.get("content", "")
+        reasoning = result.get("reasoning", "")
+        chat_id = f"chatcmpl-{eval_id}"
+        created = int(time.time())
+
+        if stream:
+            async def proxy_stream():
+                chunk = {
+                    "id": chat_id, "object": "chat.completion.chunk", "created": created, "model": model_name,
+                    "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+                }
+                yield f"data: {json.dumps(chunk)}\n\n"
+                if content:
+                    chunk["choices"][0]["delta"] = {"content": content}
+                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                chunk["choices"][0]["delta"] = {}
+                chunk["choices"][0]["finish_reason"] = "stop"
+                yield f"data: {json.dumps(chunk)}\n\n"
+                yield "data: [DONE]\n\n"
+            return StreamingResponse(proxy_stream(), media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"})
+        else:
+            message = {"role": "assistant", "content": content}
+            if reasoning:
+                message["reasoning_content"] = reasoning
+            return {
+                "id": chat_id, "object": "chat.completion", "created": created, "model": model_name,
+                "choices": [{"index": 0, "message": message, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+
+    # ===== Fallback: 直接请求（token 可能被 reCAPTCHA 拒绝） =====
+    log.warning(f"[Proxy] 超时，回退到直接请求模式")
+    v3_token = store.pop_v3_token()
+    v2_token = store.pop_v2_token() if not v3_token else None
+
+    arena_payload = {
+        "id": eval_id, "mode": "direct", "modelAId": model_id,
+        "userMessageId": uuid7(), "modelAMessageId": uuid7(),
+        "userMessage": {"content": prompt, "experimental_attachments": [], "metadata": {}},
+        "modality": modality,
+    }
     user_id = store.cookies.get("arena-user-id", "")
     if not user_id:
-        # 尝试从其他 cookie 中提取
         for key, value in store.cookies.items():
             if "user" in key.lower() and len(value) > 20:
                 user_id = value
                 break
-
-    arena_payload = {
-        "id": eval_id,
-        "mode": "direct",
-        "modelAId": model_id,
-        "userMessageId": user_msg_id,
-        "modelAMessageId": model_a_msg_id,
-        "userMessage": {
-            "content": prompt,
-            "experimental_attachments": [],
-            "metadata": {},
-        },
-        "modality": modality,
-    }
-
-    # 添加 userId（如果有）
     if user_id:
         arena_payload["userId"] = user_id
-
     if v2_token:
         arena_payload["recaptchaV2Token"] = v2_token
-        arena_payload["recaptchaV3Token"] = None
     elif v3_token:
         arena_payload["recaptchaV3Token"] = v3_token
-    else:
-        log.warning("No reCAPTCHA token available, sending without token")
 
-    # 构建 headers（与浏览器行为一致：text/plain + cookie 认证，无 Authorization）
     headers = {
-        "accept": "*/*",
-        "content-type": "text/plain;charset=UTF-8",
-        "origin": ARENA_BASE,
-        "referer": f"{ARENA_BASE}/?mode=direct",
+        "accept": "*/*", "content-type": "text/plain;charset=UTF-8",
+        "origin": ARENA_BASE, "referer": f"{ARENA_BASE}/?mode=direct",
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "cookie": store.build_cookie_header(),
     }
-
     url = ARENA_CREATE_EVAL
-    log.info(f"Sending to arena.ai: model={model_name}, eval_id={eval_id}, has_v3={bool(v3_token)}, has_v2={bool(v2_token)}")
+    log.info(f"[Fallback] Sending to arena.ai: model={model_name}")
 
     if stream:
         return StreamingResponse(
             stream_response(url, arena_payload, headers, model_name, eval_id, client_type),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"})
     else:
         return await non_stream_response(url, arena_payload, headers, model_name, eval_id, client_type)
 

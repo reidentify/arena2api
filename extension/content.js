@@ -13,11 +13,12 @@
   // ========== 向 injector.js 发消息 ==========
   function callInjector(type, data) {
     var id = 'r' + (++rid) + '_' + Date.now();
+    var timeout = type === 'PROXY_CHAT' ? 120000 : 20000;
     return new Promise(function(resolve, reject) {
       var timer = setTimeout(function() {
         delete pending[id];
         reject(new Error('Injector timeout'));
-      }, 20000);
+      }, timeout);
       pending[id] = { resolve: resolve, reject: reject, timer: timer };
       var msg = { from: 'arena2api-content', type: type, rid: id };
       if (data) {
@@ -111,6 +112,15 @@
         sendResponse(result);
       }).catch(function(err) {
         sendResponse({ error: err.message });
+      });
+      return true;
+    }
+
+    if (msg.type === 'PROXY_CHAT') {
+      callInjector('PROXY_CHAT', msg.data).then(function(result) {
+        sendResponse(result);
+      }).catch(function(err) {
+        sendResponse({ error: true, status: 0, body: err.message });
       });
       return true;
     }

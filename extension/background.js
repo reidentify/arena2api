@@ -280,6 +280,66 @@
     }
   });
 
+  // ========== 轮询代理请求 ==========
+  var proxyBusy = false;
+
+  async function pollPendingRequests() {
+    if (proxyBusy || !state.proxyUrl || !state.tabId) return;
+    try {
+      var url = state.proxyUrl.replace(/\/+$/, '') + '/v1/internal/pending';
+      var resp = await fetch(url);
+      if (!resp.ok) return;
+      var data = await resp.json();
+      if (!data.requests || data.requests.length === 0) return;
+
+      for (var i = 0; i < data.requests.length; i++) {
+        var req = data.requests[i];
+        proxyBusy = true;
+        console.log(TAG, 'Proxy request:', req.id, req.payload.model_name);
+
+        try {
+          var result = await new Promise(function(resolve) {
+            chrome.tabs.sendMessage(state.tabId, {
+              type: 'PROXY_CHAT',
+              data: Object.assign({ proxy_id: req.id }, req.payload),
+            }, function(resp) {
+              if (chrome.runtime.lastError) {
+                resolve({ error: true, status: 0, body: chrome.runtime.lastError.message });
+              } else {
+                resolve(resp || { error: true, status: 0, body: 'No response from content script' });
+              }
+            });
+          });
+
+          console.log(TAG, 'Proxy result:', req.id, result.error ? 'ERROR' : 'OK', result.content ? result.content.length + ' chars' : '');
+
+          var responseUrl = state.proxyUrl.replace(/\/+$/, '') + '/v1/internal/response/' + req.id;
+          await fetch(responseUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(result),
+          });
+        } catch(e) {
+          console.error(TAG, 'Proxy error:', e);
+          try {
+            var errorUrl = state.proxyUrl.replace(/\/+$/, '') + '/v1/internal/response/' + req.id;
+            await fetch(errorUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ error: true, status: 0, body: e.message }),
+            });
+          } catch(e2) {}
+        }
+        proxyBusy = false;
+      }
+    } catch(e) {
+      // 服务器不可用，静默忽略
+    }
+  }
+
+  // 每秒轮询代理请求
+  setInterval(pollPendingRequests, 1000);
+
   // ========== 定时任务 ==========
   // 每 80 秒请求新 token（token 有效期约 2 分钟）
   setInterval(function() {

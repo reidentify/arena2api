@@ -183,6 +183,80 @@
           enterprise: !!(window.grecaptcha && window.grecaptcha.enterprise),
         }, '*');
         break;
+
+      case 'PROXY_CHAT':
+        (function(data, requestId) {
+          var prid = data.proxy_id;
+          console.log(TAG, 'Proxy chat:', prid, data.model_name);
+
+          getRecaptchaToken('chat_submit').then(function(token) {
+            var payload = {
+              id: data.eval_id,
+              mode: 'direct',
+              modelAId: data.model_id,
+              userMessageId: data.user_msg_id,
+              modelAMessageId: data.model_a_msg_id,
+              userMessage: { content: data.prompt, experimental_attachments: [], metadata: {} },
+              modality: data.modality || 'chat',
+              recaptchaV3Token: token,
+            };
+
+            fetch('https://arena.ai/nextjs-api/stream/create-evaluation', {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+              body: JSON.stringify(payload),
+              credentials: 'include',
+            }).then(function(resp) {
+              if (!resp.ok) {
+                return resp.text().then(function(t) {
+                  window.postMessage({
+                    from: 'arena2api-injector', type: 'PROXY_RESULT', rid: requestId,
+                    proxy_id: prid, error: true, status: resp.status, body: t,
+                  }, '*');
+                });
+              }
+              var reader = resp.body.getReader();
+              var decoder = new TextDecoder();
+              var content = '', reasoning = '', buf = '';
+
+              function pump() {
+                return reader.read().then(function(result) {
+                  if (result.done) {
+                    window.postMessage({
+                      from: 'arena2api-injector', type: 'PROXY_RESULT', rid: requestId,
+                      proxy_id: prid, error: false, content: content, reasoning: reasoning,
+                    }, '*');
+                    return;
+                  }
+                  buf += decoder.decode(result.value, { stream: true });
+                  var lines = buf.split('\n');
+                  buf = lines.pop();
+                  for (var li = 0; li < lines.length; li++) {
+                    var line = lines[li];
+                    if (line.indexOf('a0:') === 0) {
+                      try { var t = JSON.parse(line.substring(3)); if (typeof t === 'string' && t !== 'hasArenaError') content += t; } catch(e) {}
+                    } else if (line.indexOf('ag:') === 0) {
+                      try { var t2 = JSON.parse(line.substring(3)); if (typeof t2 === 'string') reasoning += t2; } catch(e) {}
+                    }
+                  }
+                  return pump();
+                });
+              }
+              return pump();
+            }).catch(function(err) {
+              window.postMessage({
+                from: 'arena2api-injector', type: 'PROXY_RESULT', rid: requestId,
+                proxy_id: prid, error: true, status: 0, body: err.message || String(err),
+              }, '*');
+            });
+          }).catch(function(err) {
+            window.postMessage({
+              from: 'arena2api-injector', type: 'PROXY_RESULT', rid: requestId,
+              proxy_id: prid, error: true, status: 0, body: 'Token error: ' + (err.message || String(err)),
+            }, '*');
+          });
+        })(msg, rid);
+        break;
     }
   });
 
